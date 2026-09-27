@@ -1,0 +1,16 @@
+{
+  "name": "LockSleep - Monitoraggio Sonno",
+  "short_name": "LockSleep",
+  "description": "Applicazione Desktop per il monitoraggio del sonno con registratore webcam MP4, timer e PIN di sicurezza.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#07090e",
+  "theme_color": "#07090e",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/isometric-folders/512/moon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "locksleep-desktop",
+  "version": "1.0.0",
+  "description": "LockSleep - Applicazione Desktop per il Monitoraggio del Sonno",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "keywords": ["sleep-monitor", "webcam", "desktop-app", "electron"],
+  "author": "LockSleep Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.locksleep.desktop",
+    "productName": "LockSleep",
+    "files": ["index.html", "main.js", "manifest.json", "css/**/*", "js/**/*"],
+    "win": { "target": "nsis" }
+  }
+}
