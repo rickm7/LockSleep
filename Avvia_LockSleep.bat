@@ -6,13 +6,25 @@ echo ========================================================
 echo.
 
 if not exist "node_modules\electron\dist\electron.exe" (
-    echo Installazione delle dipendenze...
-    call npm install
+    where npm >nul 2>&1
     if errorlevel 1 (
-        echo Installazione non riuscita. Verifica la connessione e riprova.
+        echo Node.js con npm non e' disponibile nel PATH. Installa Node.js LTS, poi riprova.
         pause
         exit /b 1
     )
+    echo Installazione delle dipendenze...
+    call npm install
+    if errorlevel 1 (
+        echo Installazione dipendenze non riuscita. Verifica npm e la connessione Internet, poi riprova.
+        pause
+        exit /b 1
+    )
+)
+
+if not exist "node_modules\electron\dist\electron.exe" (
+    echo Electron non e' stato installato correttamente. Il binario electron.exe non e' presente.
+    pause
+    exit /b 1
 )
 
 echo Avvio di LockSleep con Electron...

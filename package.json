@@ -1,11 +1,11 @@
 {
-  "name": "locksleep-desktop",
+  "name": "locksleep-2",
   "version": "1.0.0",
   "description": "LockSleep - Applicazione Desktop per il Monitoraggio del Sonno",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-builder --win portable"
   },
   "keywords": ["sleep-monitor", "webcam", "desktop-app", "electron"],
   "author": "LockSleep Team",
@@ -15,9 +15,9 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.locksleep.desktop",
-    "productName": "LockSleep",
-    "files": ["index.html", "main.js", "manifest.json", "css/**/*", "js/**/*"],
-    "win": { "target": "nsis" }
+    "appId": "com.locksleep.desktop.v2",
+    "productName": "LockSleep 2",
+    "files": ["index.html", "main.js", "preload.js", "manifest.json", "css/**/*", "js/**/*"],
+    "win": { "target": "portable" }
   }
 }

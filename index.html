@@ -3,14 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LockSleep - Monitoraggio Sonno</title>
+    <title>LockSleep 2 - Monitoraggio Sonno</title>
     <meta name="description" content="Applicazione per il monitoraggio del sonno con registrazione webcam in MP4, timer e blocco PIN di sicurezza.">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- FontAwesome Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/styles.css">
     <!-- Web Manifest (Desktop PWA) -->
@@ -371,7 +365,11 @@
                                 <span class="legend-item noise"><span class="legend-dot"></span> 🎙️ Rumore</span>
                             </div>
                         </div>
-                        <div class="timeline-track-container" id="timeline-track">
+                        <div class="timeline-time-labels" aria-hidden="true">
+                            <span id="timeline-current-time">0:00:00.00</span>
+                            <span id="timeline-total-time">0:00:00.00</span>
+                        </div>
+                        <div class="timeline-track-container" id="timeline-track" role="slider" tabindex="0" aria-label="Posizione nel video" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00:00.00 di 0:00:00.00">
                             <div class="timeline-progress-bar" id="timeline-progress"></div>
                             <div id="timeline-markers-layer" class="timeline-markers-layer"></div>
                         </div>

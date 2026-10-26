@@ -27,6 +27,34 @@
     --transition-smooth: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Small offline glyph set replaces remote icon-font downloads. */
+.fa-camera::before { content: '📷'; }
+.fa-camera-retro::before { content: '📸'; }
+.fa-video::before, .fa-file-video::before, .fa-film::before, .fa-play::before { content: '▶'; }
+.fa-video-slash::before { content: '⊘'; }
+.fa-photo-film::before, .fa-file-image::before { content: '▧'; }
+.fa-microphone-lines::before { content: '♬'; }
+.fa-clock::before, .fa-calendar::before { content: '◷'; }
+.fa-moon::before { content: '☾'; }
+.fa-chart-line::before { content: '⌁'; }
+.fa-check::before, .fa-circle-check::before { content: '✓'; }
+.fa-circle-exclamation::before, .fa-triangle-exclamation::before { content: '⚠'; }
+.fa-circle-info::before { content: 'ⓘ'; }
+.fa-download::before { content: '↓'; }
+.fa-expand::before { content: '⤢'; }
+.fa-eye::before { content: '◉'; }
+.fa-eye-slash::before { content: '⊘'; }
+.fa-hard-drive::before { content: '▣'; }
+.fa-keyboard::before { content: '⌨'; }
+.fa-lightbulb::before { content: '☼'; }
+.fa-lock::before, .fa-user-shield::before, .fa-shield-halved::before { content: '◆'; }
+.fa-unlock-keyhole::before { content: '◇'; }
+.fa-magnifying-glass-plus::before { content: '⊕'; }
+.fa-sliders::before { content: '☷'; }
+.fa-trash::before, .fa-trash-can::before { content: '⌫'; }
+.fa-arrow-right::before { content: '→'; }
+.fa-person-dots-from-line::before { content: '◉'; }
+
 /* Reset & Base */
 * {
     margin: 0;
@@ -1278,6 +1306,22 @@ body.dark-theme {
     border: 1px solid rgba(255, 255, 255, 0.1);
     overflow: visible;
     cursor: pointer;
+    touch-action: none;
+    user-select: none;
+}
+
+.timeline-track-container:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}
+
+.timeline-time-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: -6px;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
 }
 
 .timeline-progress-bar {

@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'LockSleepDatabase';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'sleep_recordings';
 const SCREENSHOTS_STORE = 'screenshots';
 
@@ -32,14 +32,22 @@ class SleepDatabase {
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                const transaction = event.target.transaction;
+                let store;
                 if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                    store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                } else {
+                    store = transaction.objectStore(STORE_NAME);
                 }
+                if (!store.indexNames.contains('timestamp')) store.createIndex('timestamp', 'timestamp', { unique: false });
+
+                let screenshotsStore;
                 if (!db.objectStoreNames.contains(SCREENSHOTS_STORE)) {
-                    const snapStore = db.createObjectStore(SCREENSHOTS_STORE, { keyPath: 'id', autoIncrement: true });
-                    snapStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    screenshotsStore = db.createObjectStore(SCREENSHOTS_STORE, { keyPath: 'id', autoIncrement: true });
+                } else {
+                    screenshotsStore = transaction.objectStore(SCREENSHOTS_STORE);
                 }
+                if (!screenshotsStore.indexNames.contains('timestamp')) screenshotsStore.createIndex('timestamp', 'timestamp', { unique: false });
             };
         });
     }
@@ -52,7 +60,7 @@ class SleepDatabase {
      * @param {Array} hashChain - Cryptographic SHA-256 hash chain
      * @param {boolean} isRecovered - True if auto-recovered after unexpected shutdown
      */
-    async saveRecording(videoBlob, durationSeconds, mimeType = 'video/mp4', hashChain = [], isRecovered = false, eventsLog = [], postureSummary = null) {
+    async saveRecording(videoBlob, durationSeconds, mimeType = 'video/mp4', hashChain = [], isRecovered = false, eventsLog = [], postureSummary = null, recordedAt = Date.now()) {
         if (!this.db) await this.init();
 
         return new Promise((resolve, reject) => {
@@ -60,8 +68,8 @@ class SleepDatabase {
             const store = transaction.objectStore(STORE_NAME);
 
             const record = {
-                timestamp: Date.now(),
-                dateFormatted: new Date().toLocaleString('it-IT', {
+                timestamp: Number(recordedAt) || Date.now(),
+                dateFormatted: new Date(Number(recordedAt) || Date.now()).toLocaleString('it-IT', {
                     day: '2-digit', month: '2-digit', year: 'numeric',
                     hour: '2-digit', minute: '2-digit'
                 }),
@@ -79,14 +87,12 @@ class SleepDatabase {
             };
 
             const request = store.add(record);
-
-            request.onsuccess = (event) => {
-                resolve(event.target.result); // Returns ID
-            };
-
-            request.onerror = (event) => {
-                reject(event.target.error);
-            };
+            let savedId = null;
+            request.onsuccess = (event) => { savedId = event.target.result; };
+            request.onerror = (event) => reject(event.target.error);
+            transaction.oncomplete = () => resolve(savedId);
+            transaction.onerror = () => reject(transaction.error || new Error('Salvataggio video non riuscito'));
+            transaction.onabort = () => reject(transaction.error || new Error('Salvataggio video annullato'));
         });
     }
 

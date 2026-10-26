@@ -63,7 +63,8 @@ class AnalyticsEngine {
         this.analysisInterval = setInterval(() => {
             if (!videoElement || videoElement.paused || videoElement.ended) return;
             
-            const currentSec = Math.floor(window.webcamController.elapsedSeconds || 0);
+            const recordingStart = window.webcamController.startTime;
+            const currentSec = recordingStart ? Math.max(0, (Date.now() - recordingStart) / 1000) : 0;
 
             // 0. Continuous Lens Cover Detection (Attivo solo se alarmEnabled = true)
             if (this.alarmEnabled) {

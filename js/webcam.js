@@ -9,6 +9,7 @@ class WebcamController {
         this.stream = null;
         this.mediaRecorder = null;
         this.recordedChunks = [];
+        this.hashingQueue = Promise.resolve();
         this.isRecording = false;
         
         // Timers
@@ -37,7 +38,8 @@ class WebcamController {
         this.lastFrameRenderTime = 0;
 
         // Codec selection
-        this.selectedMimeType = 'video/mp4';
+        this.selectedMimeType = '';
+        this.pendingChunkHashes = [];
     }
 
     /**
@@ -84,7 +86,7 @@ class WebcamController {
         const tagEl = document.getElementById('mp4-codec-tag');
         if (tagEl) {
             const isMp4 = this.selectedMimeType.includes('mp4');
-            tagEl.textContent = isMp4 ? 'Formato: MP4 Leggero' : 'Formato: WebM (Compatibile)';
+            tagEl.textContent = isMp4 ? 'Formato: MP4 Leggero' : (this.selectedMimeType ? 'Formato: WebM (Compatibile)' : 'Formato: predefinito dispositivo');
         }
     }
 
@@ -499,6 +501,8 @@ class WebcamController {
         }
 
         this.recordedChunks = [];
+        this.hashingQueue = Promise.resolve();
+        this.pendingChunkHashes = [];
         this.elapsedSeconds = 0;
         this.startTime = Date.now();
         window.cryptoSecurity.resetSession();
@@ -506,10 +510,8 @@ class WebcamController {
         const bitrate = Number(bitrateBps) || 800000;
 
         // Custom bitrate for lightweight MP4 file sizes
-        const options = {
-            mimeType: this.selectedMimeType,
-            videoBitsPerSecond: bitrate
-        };
+        const options = { videoBitsPerSecond: bitrate };
+        if (this.selectedMimeType) options.mimeType = this.selectedMimeType;
 
         // Prepare Recorder Canvas for burning clocks onto the recorded video
         if (!this.recorderCanvas) {
@@ -538,12 +540,19 @@ class WebcamController {
             console.warn("Fallback a MediaRecorder predefinito:", e);
             this.mediaRecorder = new MediaRecorder(recordStream);
         }
+        this.selectedMimeType = this.mediaRecorder.mimeType || this.selectedMimeType || 'video/webm';
+        const codecTag = document.getElementById('mp4-codec-tag');
+        if (codecTag) codecTag.textContent = this.selectedMimeType.includes('mp4') ? 'Formato: MP4 Leggero' : `Formato: ${this.selectedMimeType.split(';')[0]}`;
 
         this.mediaRecorder.ondataavailable = async (event) => {
             if (event.data && event.data.size > 0) {
                 this.recordedChunks.push(event.data);
                 // Compute SHA-256 hash chain node for this chunk
-                await window.cryptoSecurity.processChunk(event.data, Date.now());
+                const hashTask = this.hashingQueue.then(() => window.cryptoSecurity.processChunk(event.data, Date.now()));
+                this.hashingQueue = hashTask.catch((error) => {
+                    console.error('Impossibile calcolare la catena SHA-256 del blocco:', error);
+                });
+                this.pendingChunkHashes.push(hashTask);
             }
         };
 
@@ -606,7 +615,7 @@ class WebcamController {
     }
 
     /**
-     * Stops monitoring session and returns recorded MP4 video blob
+     * Stops monitoring and returns the recorded video blob with its actual media type
      */
     async stopMonitoring() {
         if (!this.isRecording || !this.mediaRecorder) return null;
@@ -630,19 +639,28 @@ class WebcamController {
                 }
                 if (this.statusText) this.statusText.textContent = 'Monitoraggio Completato';
 
-                // Build MP4 Blob
-                const mime = this.selectedMimeType.split(';')[0] || 'video/mp4';
+                // Assemble the recorder's real output format (MP4 when supported).
+                const mime = (this.mediaRecorder.mimeType || this.selectedMimeType || 'video/webm').split(';')[0];
                 const rawBlob = new Blob(this.recordedChunks, { type: mime });
+                const stoppedDurationSeconds = this.startTime
+                    ? Math.max(0, (Date.now() - this.startTime) / 1000)
+                    : this.elapsedSeconds;
                 
                 (async () => {
+                    await Promise.allSettled(this.pendingChunkHashes);
                     const videoBlob = window.ensurePlayableVideoBlob ? await window.ensurePlayableVideoBlob(rawBlob) : rawBlob;
+                    const mediaDuration = await getVideoBlobDuration(videoBlob);
+                    const preciseDuration = Number.isFinite(mediaDuration) && mediaDuration > 0
+                        ? mediaDuration
+                        : stoppedDurationSeconds;
 
                     const eventsLog = window.analyticsEngine ? window.analyticsEngine.stopSensors() : [];
                     const postureSummary = window.poseEyeTracker ? window.poseEyeTracker.stopTracking() : null;
 
                     const resultData = {
                         blob: videoBlob,
-                        duration: this.elapsedSeconds,
+                        duration: preciseDuration,
+                        recordedAt: this.startTime,
                         mimeType: mime,
                         hashChain: [...window.cryptoSecurity.hashChain],
                         eventsLog: eventsLog,
@@ -662,6 +680,27 @@ class WebcamController {
             this.mediaRecorder.stop();
         });
     }
+}
+
+function getVideoBlobDuration(blob) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        const objectUrl = URL.createObjectURL(blob);
+        let settled = false;
+        const finish = (duration) => {
+            if (settled) return;
+            settled = true;
+            video.removeAttribute('src');
+            video.load();
+            URL.revokeObjectURL(objectUrl);
+            resolve(Number.isFinite(duration) && duration > 0 ? duration : null);
+        };
+        const timeout = setTimeout(() => finish(null), 5000);
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => { clearTimeout(timeout); finish(video.duration); };
+        video.onerror = () => { clearTimeout(timeout); finish(null); };
+        video.src = objectUrl;
+    });
 }
 
 // Global instance export

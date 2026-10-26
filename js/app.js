@@ -77,9 +77,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentOpenVideoId = null;
     let currentOpenScreenshotId = null;
     let currentGalleryCategory = 'videos'; // 'videos' or 'screenshots'
+    let currentVideoDuration = 0;
+    let currentVideoObjectUrl = null;
 
     // 2. Initialize Database & Webcam
     await window.sleepDb.init();
+    // Ask Chromium to retain the local recording database across restarts.
+    if (navigator.storage?.persist) {
+        navigator.storage.persist().catch((error) => console.warn('Persistenza locale non disponibile:', error));
+    }
     window.webcamController.init(
         document.getElementById('webcam-feed'),
         document.getElementById('overlay-real-time'),
@@ -98,35 +104,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ==========================================
     const locksleepChannel = new BroadcastChannel('locksleep_quick_channel');
 
-    // Handle Quick Stop broadcast from Stop_Rapido.bat
-    locksleepChannel.onmessage = async (event) => {
-        if (event.data && event.data.action === 'quick_stop') {
-            if (window.webcamController && window.webcamController.isRecording) {
-                if (blackoutOverlay) blackoutOverlay.classList.remove('active');
-                const resultData = await window.webcamController.stopMonitoring();
-                btnStart.disabled = false;
-                btnStop.disabled = true;
-                cameraSelect.disabled = false;
-                const qualitySelect = document.getElementById('quality-select');
-                if (qualitySelect) qualitySelect.disabled = false;
-
-                if (resultData && resultData.blob) {
-                    await window.sleepDb.saveRecording(
-                        resultData.blob,
-                        resultData.duration,
-                        resultData.mimeType,
-                        resultData.hashChain,
-                        false,
-                        resultData.eventsLog || [],
-                        resultData.postureSummary || null
-                    );
-                    await updateGalleryBadge();
-                    window.pinManager.clearSessionPin();
-                    showToast("⏹️ Registrazione interrotta e salvata!", "success");
-                }
-                setTimeout(() => window.close(), 800);
-            }
+    async function handleQuickStop(closeHelper = false) {
+        if (!window.webcamController?.isRecording) return;
+        if (blackoutOverlay) blackoutOverlay.classList.remove('active');
+        const resultData = await window.webcamController.stopMonitoring();
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        cameraSelect.disabled = false;
+        const qualitySelect = document.getElementById('quality-select');
+        if (qualitySelect) qualitySelect.disabled = false;
+        if (resultData?.blob) {
+            await window.sleepDb.saveRecording(resultData.blob, resultData.duration, resultData.mimeType,
+                resultData.hashChain, false, resultData.eventsLog || [], resultData.postureSummary || null, resultData.recordedAt);
+            await updateGalleryBadge();
+            window.pinManager.clearSessionPin();
+            showToast('Registrazione interrotta e salvata in locale.', 'success');
         }
+        if (closeHelper) setTimeout(() => window.close(), 800);
+    }
+
+    async function handleQuickStart() {
+        if (window.webcamController?.isRecording) return;
+        window.pinManager.setSessionPin('0000');
+        const qualitySelect = document.getElementById('quality-select');
+        const selectedBitrate = qualitySelect ? qualitySelect.value : 800000;
+        const ok = await window.webcamController.startMonitoring(cameraSelect.value, selectedBitrate);
+        if (ok) {
+            btnStart.disabled = true;
+            btnStop.disabled = false;
+            cameraSelect.disabled = true;
+            if (qualitySelect) qualitySelect.disabled = true;
+            showToast('Registrazione rapida avviata.', 'success');
+        }
+    }
+
+    // Desktop shortcuts send commands to the existing Electron instance.
+    window.lockSleepDesktop?.onCommand((action) => {
+        if (action === 'quick_stop') handleQuickStop(false);
+        if (action === 'quick_start') handleQuickStart();
+    });
+
+    // Keep the browser-only quick-stop channel for the legacy browser launch mode.
+    locksleepChannel.onmessage = (event) => {
+        if (event.data?.action === 'quick_stop') handleQuickStop(true);
     };
 
     // Check URL parameters for instant Quick Start & Quick Stop
@@ -140,21 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (urlParams.get('autostart') === '1') {
-        // Instant Quick Start: Bypass PIN modal, set session PIN, start monitoring immediately!
-        window.pinManager.setSessionPin('0000');
-        const qualitySelect = document.getElementById('quality-select');
-        const selectedBitrate = qualitySelect ? qualitySelect.value : 800000;
-        
-        setTimeout(async () => {
-            const ok = await window.webcamController.startMonitoring(cameraSelect.value, selectedBitrate);
-            if (ok) {
-                btnStart.disabled = true;
-                btnStop.disabled = false;
-                cameraSelect.disabled = true;
-                if (qualitySelect) qualitySelect.disabled = true;
-                showToast("🔴 Registrazione Rapida Avviata Istantaneamente!", "success");
-            }
-        }, 200);
+        setTimeout(handleQuickStart, 200);
     }
 
     // Camera list selector listener (Privilegia la fotocamera reale fisica rispetto ad OBS Virtual Camera)
@@ -602,7 +608,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             resultData.hashChain,
                             false,
                             resultData.eventsLog || [],
-                            resultData.postureSummary || null
+                            resultData.postureSummary || null,
+                            resultData.recordedAt
                         );
                         await updateGalleryBadge();
                         window.pinManager.clearSessionPin();
@@ -653,11 +660,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     resultData.hashChain,
                     false,
                     resultData.eventsLog || [],
-                    resultData.postureSummary || null
+                    resultData.postureSummary || null,
+                    resultData.recordedAt
                 );
                 await updateGalleryBadge();
                 window.pinManager.clearSessionPin();
-                showToast("Monitoraggio interrotto. Video MP4 sigillato con SHA-256 e salvato nel database locale.", "success");
+                showToast(`Monitoraggio interrotto. Video ${resultData.mimeType.toUpperCase()} salvato nel database locale.`, "success");
             }
         } else {
             // Incorrect PIN -> Shake modal
@@ -676,19 +684,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!record) return;
 
         currentOpenVideoId = record.id;
+        currentVideoDuration = Number(record.duration) || 0;
         const playableBlob = await window.ensurePlayableVideoBlob(record.blob);
-        const videoUrl = URL.createObjectURL(playableBlob);
+        if (currentVideoObjectUrl) URL.revokeObjectURL(currentVideoObjectUrl);
+        currentVideoObjectUrl = URL.createObjectURL(playableBlob);
+        const videoUrl = currentVideoObjectUrl;
 
         const motionCount = (record.eventsLog || []).filter(e => e.type === 'motion').length;
         const noiseCount = (record.eventsLog || []).filter(e => e.type === 'noise' || e.type === 'car_rumble' || e.type === 'high_whistle').length;
         const postureText = record.postureSummary ? ` • ${record.postureSummary.summaryText}` : '';
 
         playerVideoTitle.textContent = `Registrazione Sonno #${record.id}`;
-        playerVideoMeta.textContent = `${record.dateFormatted} • Durata: ${formatDuration(record.duration)} • ${record.sizeFormatted} • Movimenti: ${motionCount} • Suoni: ${noiseCount}${postureText}`;
+        const mediaExtension = (record.mimeType || '').includes('webm') ? 'webm' : 'mp4';
+        playerVideoMeta.textContent = `${record.dateFormatted} • Durata: ${formatDuration(record.duration)} • ${(record.mimeType || 'video/mp4').toUpperCase()} • ${record.sizeFormatted} • Movimenti: ${motionCount} • Suoni: ${noiseCount}${postureText}`;
 
         mainVideoPlayer.src = videoUrl;
+        updateTimelinePosition();
         btnDownloadMp4.href = videoUrl;
-        btnDownloadMp4.download = `sonno_registrazione_${record.id}.mp4`;
+        btnDownloadMp4.download = `sonno_registrazione_${record.id}.${mediaExtension}`;
 
         // Render interactive timeline markers
         renderTimelineMarkers(record.duration, record.eventsLog || []);
@@ -697,24 +710,117 @@ document.addEventListener('DOMContentLoaded', async () => {
         mainVideoPlayer.play().catch(e => console.warn("Autoplay:", e));
     }
 
-    // Timeline Progress Sync with Video Player
-    mainVideoPlayer.addEventListener('timeupdate', () => {
-        const progress = document.getElementById('timeline-progress');
-        if (progress && mainVideoPlayer.duration) {
-            const percent = (mainVideoPlayer.currentTime / mainVideoPlayer.duration) * 100;
-            progress.style.width = `${percent}%`;
-        }
-    });
-
-    // Timeline Click Seeking
     const timelineTrack = document.getElementById('timeline-track');
+
+    function getTimelineDuration() {
+        return Number.isFinite(mainVideoPlayer.duration) && mainVideoPlayer.duration > 0
+            ? mainVideoPlayer.duration
+            : currentVideoDuration;
+    }
+
+    function formatTimelineTime(seconds) {
+        const safeCentiseconds = Math.max(0, Math.floor((Number(seconds) || 0) * 100));
+        const safeSeconds = Math.floor(safeCentiseconds / 100);
+        const hours = Math.floor(safeSeconds / 3600);
+        const minutes = Math.floor((safeSeconds % 3600) / 60);
+        const remainder = safeSeconds % 60;
+        const centiseconds = safeCentiseconds % 100;
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
+    }
+
+    function updateTimelinePosition() {
+        const progress = document.getElementById('timeline-progress');
+        const currentTimeLabel = document.getElementById('timeline-current-time');
+        const totalTimeLabel = document.getElementById('timeline-total-time');
+        const duration = getTimelineDuration();
+        const currentTime = Math.min(mainVideoPlayer.currentTime || 0, duration || 0);
+        const percent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+        if (progress) progress.style.width = `${percent}%`;
+        if (currentTimeLabel) currentTimeLabel.textContent = formatTimelineTime(currentTime);
+        if (totalTimeLabel) totalTimeLabel.textContent = formatTimelineTime(duration);
+        if (timelineTrack) {
+            timelineTrack.setAttribute('aria-valuemax', duration.toFixed(2));
+            timelineTrack.setAttribute('aria-valuenow', currentTime.toFixed(2));
+            timelineTrack.setAttribute('aria-valuetext', `${formatTimelineTime(currentTime)} di ${formatTimelineTime(duration)}`);
+        }
+    }
+
+    function seekTimelineToPointer(e) {
+        const duration = getTimelineDuration();
+        if (!timelineTrack || duration <= 0) return;
+        const rect = timelineTrack.getBoundingClientRect();
+        if (!rect.width) return;
+        const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        try {
+            mainVideoPlayer.currentTime = percent * duration;
+            updateTimelinePosition();
+        } catch (error) {
+            console.warn('Impossibile spostare la riproduzione a questo punto:', error);
+        }
+    }
+
+    mainVideoPlayer.addEventListener('timeupdate', updateTimelinePosition);
+    mainVideoPlayer.addEventListener('loadedmetadata', updateTimelinePosition);
+    mainVideoPlayer.addEventListener('durationchange', updateTimelinePosition);
+    mainVideoPlayer.addEventListener('seeking', updateTimelinePosition);
+    mainVideoPlayer.addEventListener('seeked', updateTimelinePosition);
+    let timelineFrameId = null;
+    const animateTimeline = () => {
+        updateTimelinePosition();
+        if (!mainVideoPlayer.paused && !mainVideoPlayer.ended) timelineFrameId = requestAnimationFrame(animateTimeline);
+        else timelineFrameId = null;
+    };
+    mainVideoPlayer.addEventListener('play', () => {
+        if (timelineFrameId === null) timelineFrameId = requestAnimationFrame(animateTimeline);
+    });
+    mainVideoPlayer.addEventListener('pause', updateTimelinePosition);
+
+    // Timeline click, drag, touch, and keyboard seeking
     if (timelineTrack) {
-        timelineTrack.addEventListener('click', (e) => {
-            if (!mainVideoPlayer.duration) return;
-            const rect = timelineTrack.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const percent = Math.max(0, Math.min(1, clickX / rect.width));
-            mainVideoPlayer.currentTime = percent * mainVideoPlayer.duration;
+        let isDraggingTimeline = false;
+
+        timelineTrack.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            isDraggingTimeline = true;
+            timelineTrack.setPointerCapture?.(e.pointerId);
+            seekTimelineToPointer(e);
+            e.preventDefault();
+        });
+
+        timelineTrack.addEventListener('pointermove', (e) => {
+            if (isDraggingTimeline) seekTimelineToPointer(e);
+        });
+
+        const stopTimelineDrag = (e) => {
+            if (!isDraggingTimeline) return;
+            isDraggingTimeline = false;
+            if (timelineTrack.hasPointerCapture?.(e.pointerId)) {
+                timelineTrack.releasePointerCapture(e.pointerId);
+            }
+        };
+
+        timelineTrack.addEventListener('pointerup', stopTimelineDrag);
+        timelineTrack.addEventListener('pointercancel', stopTimelineDrag);
+        timelineTrack.addEventListener('keydown', (e) => {
+            const duration = getTimelineDuration();
+            if (duration <= 0) return;
+            const step = e.shiftKey ? 60 : 5;
+            let targetTime;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') targetTime = mainVideoPlayer.currentTime - step;
+            else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') targetTime = mainVideoPlayer.currentTime + step;
+            else if (e.key === 'PageDown') targetTime = mainVideoPlayer.currentTime - 300;
+            else if (e.key === 'PageUp') targetTime = mainVideoPlayer.currentTime + 300;
+            else if (e.key === 'Home') targetTime = 0;
+            else if (e.key === 'End') targetTime = duration;
+            else return;
+            e.preventDefault();
+            try {
+                mainVideoPlayer.currentTime = Math.max(0, Math.min(duration, targetTime));
+                updateTimelinePosition();
+            } catch (error) {
+                console.warn('Impossibile spostare la riproduzione a questo punto:', error);
+            }
         });
     }
 
@@ -736,7 +842,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             marker.addEventListener('click', (e) => {
                 e.stopPropagation();
-                mainVideoPlayer.currentTime = evt.timeSec;
+                mainVideoPlayer.currentTime = Math.max(0, Math.min(getTimelineDuration(), Number(evt.timeSec) || 0));
+                updateTimelinePosition();
                 showToast(`Salto a ${formatDuration(evt.timeSec)}: ${evt.label}`, "info");
             });
 
@@ -793,6 +900,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnClosePlayer.addEventListener('click', () => {
         mainVideoPlayer.pause();
         mainVideoPlayer.src = '';
+        if (currentVideoObjectUrl) URL.revokeObjectURL(currentVideoObjectUrl);
+        currentVideoObjectUrl = null;
         closeModal(modalPlayer);
     });
 
@@ -1063,7 +1172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function formatDuration(seconds) {
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+        const secs = (seconds % 60).toFixed(2);
         if (hrs > 0) {
             return `${hrs}h ${mins}m ${secs}s`;
         }
